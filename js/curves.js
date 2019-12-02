@@ -39,6 +39,7 @@ var derivatives = []; // array usado para alterar as derivadas quando um pto de 
 var edges = []; // pontas das derivadas para poder reconstrui-las apos reposicionamento de pts de controle
 
 var drawMode = true;
+var is3d = false;
 
 // opcoes da GUI
 var options = {
@@ -64,21 +65,14 @@ var options = {
     drawCardinalSplines(catmullrom, getPointsPositions(controlPoints));
     selectedCurve = "catmull";
   },
-  _3D: function() {
-    drawMode = false;
-    drawAxes();
-    camera.rotation.x = -Math.PI/8;
-    camera.rotation.y = -Math.PI/6;
-    camera.rotation.z = -Math.PI/4;
-  },
+  _3D: false,
   OrbitControls: false,
   clean: function() {
     controlPoints = [];
-    hermDerivatives = [];
-    hermiteStateNum = 0;
-    arrowAdded = false;
-    arrows = [];
-    hermiteState = false; 
+    curvePoints = [];
+    selectedCurve = null;
+    selectedPoint = null;
+    cleanHermite();
     while(scene.children.length > 0) { 
       scene.remove(scene.children[0]);      
     }
@@ -88,6 +82,28 @@ var options = {
   },
 };
 
+function to3D() {
+  is3d = !is3d;
+  if (is3d) {
+    drawMode = false;
+    drawAxes();
+    camera.rotation.x = -Math.PI/8;
+    camera.rotation.y = -Math.PI/6;
+    camera.rotation.z = -Math.PI/4;
+  } else {
+    removeAxes();
+    resetCamera();
+    drawMode = true;
+  }
+}
+
+function resetCamera() {
+  camera.rotation.x = 0;
+  camera.rotation.y = 0;
+  camera.rotation.z = 0;
+  camera.lookAt(scene.position);
+  this.render();
+}
 
 function drawAxes() {
   var material = new THREE.LineBasicMaterial( { color: 0x0000ff } );
@@ -96,6 +112,7 @@ function drawAxes() {
   geometry.vertices.push(new THREE.Vector3( 0, 1.5*500, 0) );
   geometry.vertices.push(new THREE.Vector3( 0, 0, 0) );
   var line = new THREE.Line( geometry, material );
+  line.name = "ax";
   scene.add( line );
 
   var material = new THREE.LineBasicMaterial( { color: 'red' } );
@@ -104,6 +121,7 @@ function drawAxes() {
   geometry.vertices.push(new THREE.Vector3( 0, 0, 0) );
   geometry.vertices.push(new THREE.Vector3( 0, 0, 0) );
   var line = new THREE.Line( geometry, material );
+  line.name = "ax";
   scene.add( line );
 
   var material = new THREE.LineBasicMaterial( { color: 'green' } );
@@ -112,33 +130,56 @@ function drawAxes() {
   geometry.vertices.push(new THREE.Vector3( 0, 0, 0) );
   geometry.vertices.push(new THREE.Vector3( 0, 0, 1.5*500) );
   var line = new THREE.Line( geometry, material );
+  line.name = "ax";
   scene.add( line );
 }
 
 function fillGUI() {
-  gui.add(options, 'bezier');
-  gui.add(options, 'hermite');
-  gui.add(options, 'cardinal');
-  gui.add(options, 'catmullrom');
-  gui.add(options, 'tightness', 0, 1).listen().onChange(redrawCardinalSpline);
-  gui.add(options, 'clean');
-  gui.add(options, 'CleanCurve');
-  gui.add(options, '_3D');
-  gui.add(options, 'OrbitControls').listen().onChange(activateOrbitControls);
+  gui.add(options, 'bezier').name("Bezier");
+  gui.add(options, 'hermite').name("Hermite Splines");
+  gui.add(options, 'cardinal').name("Cardinal Splines");
+  gui.add(options, 'catmullrom').name("Catmull-Rom");
+  gui.add(options, 'tightness', 0, 1).name('Tightness').listen().onChange(redrawCardinalSpline);
+  gui.add(options, 'clean').name("Clean");
+  gui.add(options, 'CleanCurve').name("Clean curve");
+  gui.add(options, '_3D').name("3D").listen().onChange(to3D);
+  gui.add(options, 'OrbitControls').name("Orbit Controls").listen().onChange(activateOrbitControls);
 }
 fillGUI();
 
+function sceneHasAxes() {
+  for (var i = 0 ; i < scene.children.length; i++)
+    if (scene.children[i].name == "ax")
+      return i;
+  return -1;
+}
+function removeAxes() { 
+  var indexToRemove = sceneHasAxes();
+  while (indexToRemove > -1) {
+    scene.remove(scene.children[indexToRemove]);
+    indexToRemove = sceneHasAxes();
+  }
+}
 
 function activateOrbitControls() {
   drawMode = false;  
   controls.noRotate = !controls.noRotate;
   if (controls.noRotate == true) {
-    camera = new THREE.OrthographicCamera( window.innerWidth / - 2, 
-      window.innerWidth/ 2, window.innerHeight / 2, window.innerHeight / - 2 , -100, 200);
-    camera.position.z = 5;
+    resetCamera();    
     removeAxes();
+    drawMode = true;
   }
 }
+
+function cleanHermite() {
+  derivatives = [];
+  edges = [];
+  hermiteStateNum = 0;
+  arrowAdded = false;
+  arrows = [];
+  hermiteState = false; 
+}
+
 
 /* funcao chamada toda vez que o parametro tightness eh modificado na GUI.
 Como o parametro eh utilizado apenas para cardinal splines,
@@ -196,6 +237,11 @@ function curveHasPoints() {
 
 // procura e remove pontos de curva ate que nao haja nenhum
 function cleanCurve() {
+  curvePoints = [];
+  cleanHermite();
+  selectedCurve = null;
+  selectedPoint = null;
+
   var i = curveHasPoints();
   while (i) {
     scene.remove(scene.children[i]);
@@ -425,6 +471,7 @@ function getPoint(event) {
   // Chamada ao clicar.
   function onMouseDown(event) {    
     if (document.activeElement.id != "corpo") { // resolve o problema do raycast atingir a GUI
+      console.log(document.activeElement.id);
       return;
     }
     if (hermiteState) {
